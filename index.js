@@ -1,164 +1,124 @@
 /**
- * AIYA-BUG-V1 - Main Bot Entry (index.js)
- * Owner: BLACK-HAT-911
- * Repo: https://github.com/BLACK-HAT-911/AIYA-BUG-V1
+ * AIYA-BUG-V1 - Main Bot Entry
+ * Author: BLACK-HAT-911
+ * GitHub: https://github.com/BLACK-HAT-911/AIYA-BUG-V1
  */
 
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
+import { default as makeWASocket, useSingleFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from 'baileys';
 import pino from 'pino';
-import { Boom } from '@hapi/boom';
-
-import {
-  makeWASocket,
-  useSingleFileAuthState,
-  fetchLatestBaileysVersion,
-  DisconnectReason
-} from '@adiwajshing/baileys';
-
 import { BANNER_IMAGE, BOT_SOUND } from './lib/media.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load .env if present
+import dotenv from 'dotenv';
+dotenv.config();
+
+// Express Server
 const PORT = process.env.PORT || 3000;
-
 const app = express();
-app.use(express.json());
+app.get('/', (_, res) => res.send('🟢 AIYA BUG V1 is running.'));
+app.listen(PORT, () => console.log(`🌐 Express server listening on port ${PORT}`));
 
-app.get('/', (req, res) => {
-  res.send('AIYA BUG V1 WhatsApp Bot is running!');
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server listening on port ${PORT}`);
-});
-
-// Setup Baileys auth state
+// Baileys Auth
 const { state, saveState } = useSingleFileAuthState('./session/creds.json');
-
 const logger = pino({ level: 'silent' });
+let conn;
 
-let sock;
-
+// Load Plugins
 const plugins = {};
-const pluginsFolder = path.join(__dirname, './plugins');
+const pluginsPath = path.join(__dirname, 'plugins');
 
 async function loadPlugins() {
-  const files = fs.readdirSync(pluginsFolder).filter(file => file.endsWith('.js'));
+  const files = fs.readdirSync(pluginsPath).filter(f => f.endsWith('.js'));
   for (const file of files) {
-    try {
-      const pluginPath = path.join(pluginsFolder, file);
-      const plugin = await import(`file://${pluginPath}`);
-      const name = file.replace('.js', '');
-      plugins[name] = plugin.default;
-      console.log(`✅ Loaded plugin: ${name}`);
-    } catch (e) {
-      console.error(`❌ Failed to load plugin ${file}`, e);
-    }
+    const plugin = await import(`file://${path.join(pluginsPath, file)}`);
+    const name = file.replace('.js', '');
+    plugins[name] = plugin.default;
+    console.log(`✅ Plugin loaded: ${name}`);
   }
 }
 
+// Handle messages
 async function handleMessage(m) {
-  try {
-    if (!m.message) return;
-    const messageType = Object.keys(m.message)[0];
-    if (messageType === 'protocolMessage') return;
-    
-    const msg =
-      m.message.conversation ||
-      m.message.extendedTextMessage?.text ||
-      m.message.imageMessage?.caption ||
-      '';
-    
-    if (!msg) return;
-    
-    const command = msg.trim().toLowerCase();
-    
-    for (const name in plugins) {
-      const plugin = plugins[name];
-      if (plugin && plugin.command instanceof RegExp) {
-        if (plugin.command.test(command)) {
-          await plugin.handler(m, {
-            conn: sock,
-            text: msg.slice(name.length).trim(),
-            usedPrefix: '',
-            command: name
-          });
-          break;
-        }
-      }
+  const msg = m.message?.conversation ||
+    m.message?.extendedTextMessage?.text ||
+    m.message?.imageMessage?.caption ||
+    '';
+  
+  if (!msg) return;
+  
+  const command = msg.trim().split(' ')[0].slice(1).toLowerCase();
+  
+  for (const name in plugins) {
+    const plugin = plugins[name];
+    if (plugin.command.test(command)) {
+      await plugin.handler(m, {
+        conn,
+        command,
+        text: msg.replace(command, '').trim(),
+        usedPrefix: '.'
+      });
     }
-  } catch (err) {
-    console.error('Error handling message:', err);
   }
 }
 
-async function startSock() {
+// WhatsApp Socket Connection
+async function startBot() {
   const { version } = await fetchLatestBaileysVersion();
   
-  sock = makeWASocket({
-    logger,
-    printQRInTerminal: true,
+  conn = makeWASocket({
     auth: state,
+    logger,
     version,
-    browser: ['AIYA BUG V1', 'Safari', '1.0.0']
+    printQRInTerminal: true,
+    browser: ['AIYA-BUG-V1', 'Chrome', '1.0.0']
   });
   
-  sock.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect, qr } = update;
+  conn.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+    if (qr) console.log('📲 Scan the QR code above to connect.');
     
-    if (qr) {
-      console.log('📱 Scan the QR code above to authenticate.');
+    if (connection === 'open') {
+      console.log('✅ WhatsApp connected.');
+      
+      // Send banner image
+      try {
+        await conn.sendMessage(conn.user.id, {
+          image: { url: BANNER_IMAGE },
+          caption: '🤖 *AIYA BUG V1* is Online!'
+        });
+        await conn.sendMessage(conn.user.id, {
+          audio: { url: BOT_SOUND },
+          mimetype: 'audio/mp4',
+          ptt: true
+        });
+      } catch (err) {
+        console.log('⚠️ Error sending startup media:', err.message);
+      }
     }
     
     if (connection === 'close') {
-      const reason = (lastDisconnect?.error)?.output?.statusCode;
-      if (reason === DisconnectReason.loggedOut) {
-        console.log('🔴 Session logged out. Delete ./session and restart.');
-        process.exit();
-      } else {
-        console.log('🔄 Connection closed, reconnecting...');
-        startSock();
-      }
-    } else if (connection === 'open') {
-      console.log('🟢 Connected to WhatsApp!');
-      
-      // Send banner image and sound to self on startup
-      (async () => {
-        try {
-          await sock.sendMessage(sock.user.id, {
-            image: { url: BANNER_IMAGE },
-            caption: '🤖 AIYA BUG V1 is Online!'
-          });
-          
-          await sock.sendMessage(sock.user.id, {
-            audio: { url: BOT_SOUND },
-            mimetype: 'audio/mp4',
-            ptt: true
-          });
-        } catch (e) {
-          console.log('⚠️ Failed to send startup media:', e.message);
-        }
-      })();
+      const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+      console.log(`🔌 Connection closed. Reconnect: ${shouldReconnect}`);
+      if (shouldReconnect) startBot();
     }
   });
   
-  sock.ev.on('creds.update', saveState);
-  
-  sock.ev.on('messages.upsert', async (m) => {
-    if (m.type !== 'notify') return;
-    
-    for (const msg of m.messages) {
-      if (!msg.message) continue;
-      if (msg.key.fromMe) continue;
-      
-      await handleMessage(msg);
+  conn.ev.on('messages.upsert', async ({ messages, type }) => {
+    if (type !== 'notify') return;
+    for (const m of messages) {
+      if (!m.message || m.key.fromMe) continue;
+      await handleMessage(m);
     }
   });
+  
+  conn.ev.on('creds.update', saveState);
 }
 
 await loadPlugins();
-startSock();
+startBot();
