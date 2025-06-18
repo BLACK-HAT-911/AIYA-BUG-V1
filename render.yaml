@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: aiya-bug-v1
+    env: node
+    region: oregon # change to your preferred region
+    plan: starter # free tier, change if needed
+    branch: main
+    buildCommand: "npm install"
+    startCommand: "npm start"
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "3000"
