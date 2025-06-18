@@ -1,138 +1,153 @@
 /**
- * AIYA-BUG-V1 - Main WhatsApp Bot Entry
- * Author: BLACK-HAT-911
- * GitHub: https://github.com/BLACK-HAT-911/AIYA-BUG-V1
+ * AIYA BUG V1 - Main Bot Entry
+ * Owner: BLACK-HAT-911
+ * Repo: https://github.com/BLACK-HAT-911/AIYA-BUG-V1
  */
 
-import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
+import express from 'express';
 import pino from 'pino';
-import {
-  makeWASocket,
-  useSingleFileAuthState,
-  fetchLatestBaileysVersion,
-  DisconnectReason
-} from 'baileys';
+import dotenv from 'dotenv';
+import qrcode from 'qrcode-terminal';
+import baileys from 'baileys';
+import { fileURLToPath } from 'url';
 import { BANNER_IMAGE, BOT_SOUND } from './lib/media.js';
+
+const {
+  useSingleFileAuthState,
+  makeWASocket,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  makeInMemoryStore
+} = baileys;
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Express server
-const PORT = process.env.PORT || 3000;
+// === AUTH ===
+const sessionFile = './session/creds.json';
+const { state, saveState } = useSingleFileAuthState(sessionFile);
+
+// === LOGGER ===
+const logger = pino({ level: 'silent' }, pino.destination('bot.log'));
+
+// === DATABASE ===
+const store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
+store?.readFromFile('./session/store.json');
+setInterval(() => {
+  store?.writeToFile('./session/store.json');
+}, 10_000);
+
+// === INIT EXPRESS ===
 const app = express();
-app.get('/', (_, res) => res.send('🤖 AIYA BUG V1 is online!'));
-app.listen(PORT, () => console.log(`🌐 Server running on port ${PORT}`));
+const PORT = process.env.PORT || 3000;
 
-// Baileys Auth
-const { state, saveState } = useSingleFileAuthState('./session/creds.json');
-const logger = pino({ level: 'silent' });
-let conn;
+app.get('/', (req, res) => {
+  res.send(`🤖 ${process.env.BOT_NAME || 'AIYA BUG V1'} is running!`);
+});
 
-// Load plugins dynamically
-const plugins = {};
+app.listen(PORT, () => {
+  console.log(`🌐 Web server running on http://localhost:${PORT}`);
+});
+
+// === LOAD COMMANDS ===
+const commands = new Map();
 const pluginDir = path.join(__dirname, 'plugins');
 
-async function loadPlugins() {
-  const files = fs.readdirSync(pluginDir).filter(f => f.endsWith('.js'));
-  for (const file of files) {
-    try {
-      const plugin = await import(`file://${path.join(pluginDir, file)}`);
-      plugins[file.replace('.js', '')] = plugin.default;
-      console.log(`✅ Loaded plugin: ${file}`);
-    } catch (e) {
-      console.error(`❌ Failed to load plugin ${file}:`, e);
-    }
-  }
-}
-
-// Handle incoming messages
-async function handleMessage(m) {
-  try {
-    const msg =
-      m.message?.conversation ||
-      m.message?.extendedTextMessage?.text ||
-      m.message?.imageMessage?.caption ||
-      m.message?.videoMessage?.caption ||
-      '';
-    
-    if (!msg) return;
-    const command = msg.trim().split(' ')[0].slice(1).toLowerCase();
-    
-    for (const name in plugins) {
-      const plugin = plugins[name];
-      if (plugin.command?.test(command)) {
-        await plugin.handler(m, {
-          conn,
-          command,
-          text: msg.replace(command, '').trim(),
-          usedPrefix: '.'
-        });
+fs.readdirSync(pluginDir).forEach(file => {
+  if (file.endsWith('.js')) {
+    import(`./plugins/${file}`).then(plugin => {
+      if (plugin.command && plugin.handler) {
+        commands.set(plugin.command, plugin.handler);
+        console.log(`✅ Loaded command: ${plugin.command}`);
       }
-    }
-  } catch (err) {
-    console.error('❌ Error in handleMessage:', err.message);
+    }).catch(err => {
+      console.error(`❌ Failed to load ${file}:`, err);
+    });
   }
-}
+});
 
-// Start the bot
+// === START WHATSAPP BOT ===
 async function startBot() {
   const { version } = await fetchLatestBaileysVersion();
-  
-  conn = makeWASocket({
-    auth: state,
-    logger,
-    printQRInTerminal: true,
+
+  const sock = makeWASocket({
     version,
-    browser: ['AIYA-BUG-V1', 'Chrome', '1.0.0']
+    logger,
+    auth: state,
+    printQRInTerminal: true,
+    syncFullHistory: false,
+    generateHighQualityLinkPreview: true,
+    markOnlineOnConnect: true
   });
-  
-  conn.ev.on('creds.update', saveState);
-  
-  conn.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-    if (qr) console.log('📸 Scan the QR code to connect your WhatsApp');
-    
-    if (connection === 'open') {
-      console.log('✅ Connected to WhatsApp');
-      
-      try {
-        await conn.sendMessage(conn.user.id, {
-          image: { url: BANNER_IMAGE },
-          caption: '*🤖 AIYA BUG V1 is now online!*'
-        });
-        
-        await conn.sendMessage(conn.user.id, {
-          audio: { url: BOT_SOUND },
-          mimetype: 'audio/mp4',
-          ptt: true
-        });
-      } catch (e) {
-        console.error('⚠️ Failed to send startup media:', e.message);
-      }
+
+  store?.bind(sock.ev);
+
+  sock.ev.on('connection.update', update => {
+    const { connection, lastDisconnect, qr } = update;
+
+    if (qr) {
+      qrcode.generate(qr, { small: true });
     }
-    
+
+    if (connection === 'open') {
+      console.log(`✅ WhatsApp connected as ${sock.user.id}`);
+      sock.sendMessage(sock.user.id, {
+        image: { url: BANNER_IMAGE },
+        caption: `🤖 ${process.env.BOT_NAME || 'AIYA BUG V1'} is ready!`,
+      });
+      sock.sendMessage(sock.user.id, { audio: { url: BOT_SOUND }, mimetype: 'audio/mp4' });
+    }
+
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
-      const reconnect = reason !== DisconnectReason.loggedOut;
-      console.log(`🔌 Connection closed. Reconnect: ${reconnect}`);
-      if (reconnect) await startBot();
+
+      if (reason === DisconnectReason.loggedOut || reason === 401) {
+        console.log('❌ Logged out. Restarting session...');
+        fs.unlinkSync(sessionFile);
+        startBot();
+      } else {
+        console.log('⚠️ Disconnected. Reconnecting...');
+        startBot();
+      }
     }
   });
-  
-  conn.ev.on('messages.upsert', async ({ messages, type }) => {
-    if (type !== 'notify') return;
-    for (const m of messages) {
-      if (!m.message || m.key.fromMe) continue;
-      await handleMessage(m);
+
+  sock.ev.on('creds.update', saveState);
+
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    if (!messages || !messages[0]?.message) return;
+    const msg = messages[0];
+    const from = msg.key.remoteJid;
+    const body =
+      msg.message?.conversation ||
+      msg.message?.extendedTextMessage?.text ||
+      '';
+    const isCmd = body.startsWith('.');
+
+    if (!isCmd) return;
+
+    const commandName = body.trim().split(' ')[0].slice(1).toLowerCase();
+    const args = body.trim().split(' ').slice(1);
+
+    if (commands.has(commandName)) {
+      try {
+        await commands.get(commandName)({
+          sock,
+          msg,
+          args,
+          from,
+          command: commandName
+        });
+      } catch (e) {
+        console.error(`❌ Error in command ${commandName}:`, e);
+        await sock.sendMessage(from, { text: `⚠️ Error: ${e.message}` });
+      }
     }
   });
 }
 
-// Start everything
-await loadPlugins();
 startBot();
