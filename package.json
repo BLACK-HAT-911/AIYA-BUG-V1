@@ -5,16 +5,25 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "lint": "eslint .",
+    "build": "tsc"
   },
   "keywords": [
     "whatsapp",
     "bot",
     "baileys",
-    "aiya-bug-v1"
+    "aiya-bug-v1",
+    "termux",
+    "render",
+    "vercel"
   ],
   "author": "BLACK-HAT-911",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "baileys": "6.7.18",
     "express": "5.1.0",
@@ -24,7 +33,9 @@
     "dotenv": "16.4.5",
     "node-fetch": "3.3.2"
   },
-  "engines": {
-    "node": ">=18.0.0"
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.5",
+    "nodemon": "^3.1.0"
   }
 }
