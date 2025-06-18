@@ -1,7 +1,7 @@
 /**
- * AIYA-BUG-V1 - WhatsApp Bot
+ * AIYA-BUG-V1 - Main WhatsApp Bot Entry
  * Author: BLACK-HAT-911
- * Repo: https://github.com/BLACK-HAT-911/AIYA-BUG-V1
+ * GitHub: https://github.com/BLACK-HAT-911/AIYA-BUG-V1
  */
 
 import express from 'express';
@@ -16,7 +16,6 @@ import {
   fetchLatestBaileysVersion,
   DisconnectReason
 } from 'baileys';
-
 import { BANNER_IMAGE, BOT_SOUND } from './lib/media.js';
 
 dotenv.config();
@@ -24,18 +23,18 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Setup Express
+// Express server
 const PORT = process.env.PORT || 3000;
 const app = express();
-app.get('/', (_, res) => res.send('🤖 AIYA BUG V1 is running'));
-app.listen(PORT, () => console.log(`🌐 Listening on port ${PORT}`));
+app.get('/', (_, res) => res.send('🤖 AIYA BUG V1 is online!'));
+app.listen(PORT, () => console.log(`🌐 Server running on port ${PORT}`));
 
-// Setup Baileys Auth
+// Baileys Auth
 const { state, saveState } = useSingleFileAuthState('./session/creds.json');
 const logger = pino({ level: 'silent' });
 let conn;
 
-// Load Plugins
+// Load plugins dynamically
 const plugins = {};
 const pluginDir = path.join(__dirname, 'plugins');
 
@@ -81,30 +80,30 @@ async function handleMessage(m) {
   }
 }
 
-// Initialize WhatsApp socket
+// Start the bot
 async function startBot() {
   const { version } = await fetchLatestBaileysVersion();
   
   conn = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
     logger,
-    browser: ['AIYA-BUG-V1', 'MacOS', '1.0.0'],
-    version
+    printQRInTerminal: true,
+    version,
+    browser: ['AIYA-BUG-V1', 'Chrome', '1.0.0']
   });
   
   conn.ev.on('creds.update', saveState);
   
   conn.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
-    if (qr) console.log('📸 Scan the QR code above to connect your WhatsApp');
+    if (qr) console.log('📸 Scan the QR code to connect your WhatsApp');
     
     if (connection === 'open') {
-      console.log('✅ WhatsApp connection established');
+      console.log('✅ Connected to WhatsApp');
       
       try {
         await conn.sendMessage(conn.user.id, {
           image: { url: BANNER_IMAGE },
-          caption: '🤖 *AIYA BUG V1 is Online!*'
+          caption: '*🤖 AIYA BUG V1 is now online!*'
         });
         
         await conn.sendMessage(conn.user.id, {
@@ -113,26 +112,27 @@ async function startBot() {
           ptt: true
         });
       } catch (e) {
-        console.log('⚠️ Failed to send startup media:', e.message);
+        console.error('⚠️ Failed to send startup media:', e.message);
       }
     }
     
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
       const reconnect = reason !== DisconnectReason.loggedOut;
-      console.log(`🔌 Disconnected. Reconnect: ${reconnect}`);
+      console.log(`🔌 Connection closed. Reconnect: ${reconnect}`);
       if (reconnect) await startBot();
     }
   });
   
   conn.ev.on('messages.upsert', async ({ messages, type }) => {
     if (type !== 'notify') return;
-    for (const msg of messages) {
-      if (!msg.message || msg.key.fromMe) continue;
-      await handleMessage(msg);
+    for (const m of messages) {
+      if (!m.message || m.key.fromMe) continue;
+      await handleMessage(m);
     }
   });
 }
 
+// Start everything
 await loadPlugins();
 startBot();
