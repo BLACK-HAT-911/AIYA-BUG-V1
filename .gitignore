@@ -1,0 +1,34 @@
+# Node modules (never push)
+node_modules/
+
+# Session/auth files (your WhatsApp connection)
+session/
+session/*.json
+
+# Environment variables
+.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS/system files
+.DS_Store
+Thumbs.db
+
+# Vercel and Render cache/deploy metadata
+.vercel/
+render.yaml
+.env.production
+.env.development
+
+# Editor configs
+.vscode/
+.idea/
+
+# Optional: prevent compiled DB or temp files
+*.sqlite
+*.db
+*.tmp
+*.bak
