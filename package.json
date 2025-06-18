@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "lint": "eslint .",
+    "lint": "eslint . --ext .js",
     "build": "tsc"
   },
   "keywords": [
@@ -34,7 +34,7 @@
     "node-fetch": "3.3.2"
   },
   "devDependencies": {
-    "eslint": "^8.57.0",
+    "eslint": "^9.29.0",
     "typescript": "^5.4.5",
     "nodemon": "^3.1.0"
   }
