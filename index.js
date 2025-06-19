@@ -1,6 +1,6 @@
 /**
  * AIYA BUG V1 - Main Bot Entry
- * Owner: BLACK-HAT-911
+ * Author: BLACK-HAT-911
  * Repo: https://github.com/BLACK-HAT-911/AIYA-BUG-V1
  */
 
@@ -10,7 +10,7 @@ import express from 'express';
 import pino from 'pino';
 import dotenv from 'dotenv';
 import qrcode from 'qrcode-terminal';
-import baileys from 'baileys';
+import * as baileys from '@whiskeysockets/baileys';
 import { fileURLToPath } from 'url';
 import { BANNER_IMAGE, BOT_SOUND } from './lib/media.js';
 
@@ -36,9 +36,9 @@ const logger = pino({ level: 'silent' }, pino.destination('bot.log'));
 
 // === DATABASE ===
 const store = makeInMemoryStore({ logger: pino({ level: 'silent' }) });
-store?.readFromFile('./session/store.json');
+store.readFromFile('./session/store.json');
 setInterval(() => {
-  store?.writeToFile('./session/store.json');
+  store.writeToFile('./session/store.json');
 }, 10_000);
 
 // === INIT EXPRESS ===
@@ -50,7 +50,7 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🌐 Web server running on http://localhost:${PORT}`);
+  console.log(`🌍 Web server listening on http://localhost:${PORT}`);
 });
 
 // === LOAD COMMANDS ===
@@ -73,7 +73,7 @@ fs.readdirSync(pluginDir).forEach(file => {
 // === START WHATSAPP BOT ===
 async function startBot() {
   const { version } = await fetchLatestBaileysVersion();
-
+  
   const sock = makeWASocket({
     version,
     logger,
@@ -83,28 +83,28 @@ async function startBot() {
     generateHighQualityLinkPreview: true,
     markOnlineOnConnect: true
   });
-
-  store?.bind(sock.ev);
-
+  
+  store.bind(sock.ev);
+  
   sock.ev.on('connection.update', update => {
     const { connection, lastDisconnect, qr } = update;
-
+    
     if (qr) {
       qrcode.generate(qr, { small: true });
     }
-
+    
     if (connection === 'open') {
-      console.log(`✅ WhatsApp connected as ${sock.user.id}`);
+      console.log(`✅ Connected as ${sock.user.id}`);
       sock.sendMessage(sock.user.id, {
         image: { url: BANNER_IMAGE },
         caption: `🤖 ${process.env.BOT_NAME || 'AIYA BUG V1'} is ready!`,
       });
       sock.sendMessage(sock.user.id, { audio: { url: BOT_SOUND }, mimetype: 'audio/mp4' });
     }
-
+    
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode;
-
+      
       if (reason === DisconnectReason.loggedOut || reason === 401) {
         console.log('❌ Logged out. Restarting session...');
         fs.unlinkSync(sessionFile);
@@ -115,9 +115,9 @@ async function startBot() {
       }
     }
   });
-
+  
   sock.ev.on('creds.update', saveState);
-
+  
   sock.ev.on('messages.upsert', async ({ messages }) => {
     if (!messages || !messages[0]?.message) return;
     const msg = messages[0];
@@ -126,13 +126,13 @@ async function startBot() {
       msg.message?.conversation ||
       msg.message?.extendedTextMessage?.text ||
       '';
-    const isCmd = body.startsWith('.');
-
+    const isCmd = body?.startsWith('.');
+    
     if (!isCmd) return;
-
+    
     const commandName = body.trim().split(' ')[0].slice(1).toLowerCase();
     const args = body.trim().split(' ').slice(1);
-
+    
     if (commands.has(commandName)) {
       try {
         await commands.get(commandName)({
